@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: #000000;
+  --color-surface: #18181b;
+  --color-surface-2: #27272a;
+  --color-surface-3: #3f3f46;
+  --color-primary: #0a7cff;
+  --color-primary-soft: #0a7cff26;
+  --color-success: #17c964;
+  --color-danger: #f31260;
+  --color-warning: #f5a524;
+  --font-sans: Inter, "Noto Sans Thai", Sarabun, ui-sans-serif, system-ui,
+    -apple-system, "Segoe UI", sans-serif;
+
+  --animate-toast-in: toast-in 220ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  --animate-modal-in: modal-in 200ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  --animate-pulse-ring: pulse-ring 1.8s ease-out infinite;
+
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes modal-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes pulse-ring {
+    0% {
+      box-shadow: 0 0 0 0 rgb(23 201 100 / 0.55);
+    }
+    80%,
+    100% {
+      box-shadow: 0 0 0 7px rgb(23 201 100 / 0);
+    }
+  }
+  @keyframes shiny-dot-burst {
+    0% {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.4);
+    }
+    18% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translate(calc(-50% + var(--dot-x)), calc(-50% + var(--dot-y))) scale(0);
+    }
+  }
+}
+
+.shiny-dot-burst {
+  animation: shiny-dot-burst 620ms cubic-bezier(0.16, 0.7, 0.3, 1) both;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-canvas);
+  color: #fafafa;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
