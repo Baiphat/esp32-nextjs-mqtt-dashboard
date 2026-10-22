@@ -36,8 +36,8 @@ const char* MQTT_PASS = "";
 // --- Device ID ต้องตรงกับในเว็บ Next.js ทุกตัวอักษร ---
 const char* DEVICE_ID = "esp32-pat-789"; 
 
-// --- กำหนดขาพิน (เปลี่ยนมาใช้ GPIO 4 เพื่อความเสถียร ไม่รวน) ---
-const int RELAY_PIN = 25;                  // ต่อขา IN ของโมดูลรีเลย์เข้าที่ GPIO 4
+// --- กำหนดขาพิน ---
+const int RELAY_PIN = 25;                 // ใช้ขา GPIO 25 ตามที่คุณเลือก
 const int LED_PIN = 2;                    // ไฟ LED บนบอร์ด DevKit V1
 
 WiFiClient espClient;
@@ -70,7 +70,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.println(state ? "ON" : "OFF");
   }
   else if (topicStr.endsWith("/relay/set")) {
-    // โมดูลรีเลย์ทั่วไป: สั่ง LOW = เปิด, สั่ง HIGH = ปิด
+    // ควบคุมรีเลย์: state = true (เปิด -> ส่ง LOW), state = false (ปิด -> ส่ง HIGH)
     digitalWrite(RELAY_PIN, state ? LOW : HIGH);
     
     Serial.print("Relay State: ");
@@ -96,11 +96,9 @@ void reconnect() {
     
     Serial.print("Connecting to MQTT Broker...");
     
-    // เชื่อมต่อพร้อมตั้งค่า Last Will (ส่ง "offline" อัตโนมัติถ้าบอร์ดหลุด)
     if (client.connect(clientId.c_str(), MQTT_USER, MQTT_PASS, statusTopic.c_str(), 0, true, "offline")) {
       Serial.println(" connected!");
       
-      // ส่งสถานะ "online" ไปบอกเว็บ
       client.publish(statusTopic.c_str(), "online", true);
 
       String ledTopic = "esp32/" + String(DEVICE_ID) + "/led/set";
@@ -120,7 +118,7 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   
-  // ตั้งค่าสถานะเริ่มต้นให้รีเลย์ "ปิด" ก่อน (ส่ง HIGH ตัดไฟ) เพื่อป้องกันรีเลย์ค้างตอนเปิดเครื่อง
+  // ตั้งค่าพินและบังคับให้รีเลย์ "ปิด" (HIGH) ตั้งแต่ตอนเปิดเครื่อง เพื่อไม่ให้ไฟเขียวค้าง
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, HIGH); 
   
