@@ -38,7 +38,7 @@ const char* DEVICE_ID = "esp32-pat-789";
 
 // --- กำหนดขาพิน ---
 const int RELAY_PIN = 26;                   // ต่อขา IN ของโมดูลรีเลย์
-const bool RELAY_ACTIVE_LOW = true;         // รีเลย์ทั่วไปสั่ง LOW แล้วติด
+const bool RELAY_ACTIVE_LOW = HIGH;         // รีเลย์ทั่วไปสั่ง LOW แล้วติด
 const int LED_PIN = 2;                      // ไฟ LED บนบอร์ด DevKit V1
 
 WiFiClient espClient;
@@ -49,28 +49,15 @@ const long pingInterval = 5000;             // ส่งสถานะทุก
 
 // ฟังก์ชันรับข้อความจาก MQTT
 void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("-> Received topic: ");
-  Serial.println(topic);
-
   String message = "";
   for (unsigned int i = 0; i < length; i++) {
     message += (char)payload[i];
   }
-  Serial.print("-> Payload: ");
-  Serial.println(message);
 
   // แปลง JSON Payload
   StaticJsonDocument<200> doc;
   DeserializationError error = deserializeJson(doc, message);
   if (error) {
-    Serial.print("JSON parsing failed: ");
-    Serial.println(error.c_str());
-    return;
-  }
-
-  // ตรวจสอบว่ามีคีย์ state หรือไม่
-  if (!doc.containsKey("state")) {
-    Serial.println("JSON missing 'state' key");
     return;
   }
 
@@ -79,15 +66,14 @@ void callback(char* topic, byte* payload, unsigned int length) {
   
   if (topicStr.endsWith("/led/set")) {
       digitalWrite(LED_PIN, state ? HIGH : LOW);
-      Serial.println(state ? "LED ON" : "LED OFF");
   }
   else if (topicStr.endsWith("/relay/set")) {
     digitalWrite(RELAY_PIN, RELAY_ACTIVE_LOW ? (state ? LOW : HIGH) : (state ? HIGH : LOW));
-    Serial.println(state ? "RELAY ON" : "RELAY OFF");
   }
 }
 
 void reconnect() {
+  // เช็กสถานะ Wi-Fi ก่อน ถ้าหลุดให้ต่อใหม่ก่อนเชื่อม MQTT
   if (WiFi.status() != WL_CONNECTED) {
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     unsigned long startAttemptTime = millis();
@@ -105,9 +91,11 @@ void reconnect() {
     
     Serial.print("Connecting to MQTT Broker...");
     
+    // เชื่อมต่อพร้อมตั้งค่า Last Will (ส่ง "offline" ไปที่ status topic อัตโนมัติถ้าบอร์ดหลุด)[cite: 8]
     if (client.connect(clientId.c_str(), MQTT_USER, MQTT_PASS, statusTopic.c_str(), 0, true, "offline")) {
       Serial.println(" connected!");
       
+      // ส่งสถานะ "online" (retained = true) ไปบอกเว็บ[cite: 8]
       client.publish(statusTopic.c_str(), "online", true);
 
       String ledTopic = "esp32/" + String(DEVICE_ID) + "/led/set";
@@ -157,9 +145,29 @@ void setup() {
   client.setServer(MQTT_HOST, MQTT_PORT);
   client.setCallback(callback);
   
+  // เชื่อมต่อ MQTT ทันที
   reconnect();
 }
 
 void loop() {
   if (!client.connected()) {
     reconnect();
+  }
+  client.loop();
+
+  // ส่ง Telemetry ทุกๆ 5 วินาที
+  unsigned long now = millis();
+  if (now - lastPingTime > pingInterval) {
+    lastPingTime = now;
+
+    StaticJsonDocument<200> doc;
+    doc["uptime"] = millis() / 1000; // แปลงเป็นวินาที[cite: 8]
+    doc["rssi"] = WiFi.RSSI();        // ความแรงสัญญาณ Wi-Fi[cite: 8]
+
+    char buffer[256];
+    serializeJson(doc, buffer);
+
+    String telemetryTopic = "esp32/" + String(DEVICE_ID) + "/telemetry";
+    client.publish(telemetryTopic.c_str(), buffer);
+  }
+}
