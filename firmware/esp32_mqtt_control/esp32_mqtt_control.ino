@@ -37,7 +37,7 @@ const char* MQTT_PASS = "";
 const char* DEVICE_ID = "esp32-pat-789"; 
 
 // --- กำหนดขาพิน (เปลี่ยนมาใช้ GPIO 4 เพื่อความเสถียร ไม่รวน) ---
-const int RELAY_PIN = 12;                  // ต่อขา IN ของโมดูลรีเลย์เข้าที่ GPIO 4
+const int RELAY_PIN = 25;                  // ต่อขา IN ของโมดูลรีเลย์เข้าที่ GPIO 4
 const int LED_PIN = 2;                    // ไฟ LED บนบอร์ด DevKit V1
 
 WiFiClient espClient;
