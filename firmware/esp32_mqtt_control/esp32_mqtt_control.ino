@@ -37,7 +37,7 @@ const char* MQTT_PASS = "";
 const char* DEVICE_ID = "esp32-pat-789"; 
 
 // --- ขาพิน ---
-const int RELAY_PIN = 23;                   // เปลี่ยนมาใช้ขา 23 ที่เราเทสแล้วว่าเวิร์ก
+const int RELAY_PIN = 23;                   // ใช้ขา 23 ที่ทดสอบแล้วเวิร์ก
 const int LED_PIN = 2;                      
 
 WiFiClient espClient;
@@ -63,7 +63,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     digitalWrite(LED_PIN, state ? HIGH : LOW);
   }
   else if (topicStr.endsWith("/relay/set")) {
-    // สั่ง LOW = เปิด, HIGH = ปิด (ตามลอจิกของรีเลย์ตัวนี้)
+    // สั่ง LOW = เปิด, HIGH = ปิด
     digitalWrite(RELAY_PIN, state ? LOW : HIGH);
     Serial.print("Relay State: ");
     Serial.println(state ? "ON" : "OFF");
@@ -85,17 +85,17 @@ void reconnect() {
 }
 
 void setup() {
-  Serial.begin(115200);
-  delay(500);
-
-  // 1. กำหนดสถานะรีเลย์ให้ "ปิด" (HIGH) ตั้งแต่เสี้ยววินาทีแรก
+  // --- 1. บังคับตั้งค่าพินและดีดรีเลย์ให้ "ปิด" ตั้งแต่บรรทัดแรกสุดทันทีที่ไฟเข้าบอร์ด ---
   pinMode(RELAY_PIN, OUTPUT);
   digitalWrite(RELAY_PIN, HIGH); 
+
+  Serial.begin(115200);
+  delay(500);
   
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
 
-  // 2. เชื่อมต่อ Wi-Fi
+  // --- 2. เชื่อมต่อ Wi-Fi ---
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.print("Connecting to WiFi");
   
