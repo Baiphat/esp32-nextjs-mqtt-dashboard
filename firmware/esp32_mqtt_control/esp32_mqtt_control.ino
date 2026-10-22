@@ -21,197 +21,147 @@
 
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <ArduinoJson.h>
 
-const char* WIFI_SSID = "Nitipoom";
-const char* WIFI_PASS = "0812676817";
+// --- ตั้งค่า WiFi ---
+const char* WIFI_SSID = "Nitipoom";         // ชื่อ Wi-Fi
+const char* WIFI_PASS = "0812676817";       // รหัสผ่าน Wi-Fi
 
-const char*    MQTT_HOST = "broker.emqx.io";
-const uint16_t MQTT_PORT = 1883;
-const char*    MQTT_USER = "";   
-const char*    MQTT_PASS = "";
+// --- ตั้งค่า MQTT Broker (พอร์ต TCP ปกติ 1883) ---
+const char* MQTT_HOST = "broker.emqx.io";   // Public Broker
+const uint16_t MQTT_PORT = 1883;            // พอร์ต MQTT มาตรฐาน
+const char* MQTT_USER = "";
+const char* MQTT_PASS = "";
 
-const char* DEVICE_ID = "esp32-pat-789";
+// --- Device ID ต้องตรงกับในเว็บ Next.js ---
+const char* DEVICE_ID = "esp32-pat-789"; 
 
-// ======================= ขาที่ใช้ =======================
-const int  RELAY_PIN        = 26;    // ต่อเข้าขา IN ของโมดูลรีเลย์
-const bool RELAY_ACTIVE_LOW = true;  // โมดูลส่วนใหญ่สั่ง LOW แล้วรีเลย์ติด
-const int  LED_PIN          = 2;     // ไฟ LED ในบอร์ด DevKit V1 (สั่ง HIGH แล้วติด)
+// --- กำหนดขาพิน ---
+const int RELAY_PIN = 26;                   // ต่อขา IN ของโมดูลรีเลย์
+const bool RELAY_ACTIVE_LOW = true;         // รีเลย์ทั่วไปสั่ง LOW แล้วติด
+const int LED_PIN = 2;                      // ไฟ LED บนบอร์ด DevKit V1
 
-// ======================= ตัวแปรภายใน =======================
-const unsigned long TELEMETRY_EVERY_MS = 5000;
-const unsigned long RECONNECT_EVERY_MS = 5000;
+WiFiClient espClient;
+PubSubClient client(espClient);
 
-WiFiClient   wifiClient;
-PubSubClient mqtt(wifiClient);
+unsigned long lastPingTime = 0;
+const long pingInterval = 5000;             // ส่งสถานะทุกๆ 5 วินาที
 
-String base;
-String tStatus, tTelemetry, tPing, tPong;
-String tRelaySet, tRelayState, tLedSet, tLedState;
+// ฟังก์ชันรับข้อความจาก MQTT
+void callback(char* topic, byte* payload, unsigned int length) {
+  String message = "";
+  for (unsigned int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
 
-bool relayOn = false;
-bool ledOn   = false;
-
-unsigned long lastTelemetry = 0;
-unsigned long lastReconnect = 0;
-// millis() is a 32-bit counter on ESP32 and wraps about every 49.7 days.
-// Accumulate its unsigned deltas into 64 bits so the published uptime does not wrap.
-uint32_t lastUptimeSampleMs = 0;
-uint64_t uptimeMs = 0;
-
-void updateUptime() {
-  const uint32_t nowMs = (uint32_t)millis();
-  uptimeMs += (uint32_t)(nowMs - lastUptimeSampleMs);
-  lastUptimeSampleMs = nowMs;
-}
-
-// ---------- ควบคุมขา ----------
-void writeRelay(bool on) {
-  relayOn = on;
-  digitalWrite(RELAY_PIN, (on != RELAY_ACTIVE_LOW) ? HIGH : LOW);
-}
-
-void writeLed(bool on) {
-  ledOn = on;
-  digitalWrite(LED_PIN, on ? HIGH : LOW);
-}
-
-void publishState(const String& topic, bool on) {
-  mqtt.publish(topic.c_str(), on ? "ON" : "OFF", true);  // retained
-}
-
-// ---------- รับข้อความจาก broker ----------
-void onMessage(char* topicRaw, byte* payload, unsigned int length) {
-  String topic(topicRaw);
-  String msg;
-  msg.reserve(length);
-  for (unsigned int i = 0; i < length; i++) msg += (char)payload[i];
-
-  if (topic == tPing) {
-    // ส่งข้อความเดิมกลับทันที เว็บจะเอาไปคำนวณ ping
-    mqtt.publish(tPong.c_str(), msg.c_str());
+  // แปลง JSON Payload
+  StaticJsonDocument<200> doc;
+  DeserializationError error = deserializeJson(doc, message);
+  if (error) {
     return;
   }
 
-  // Parse the JSON command without requiring an additional Arduino library.
-  msg.trim();
-  bool on;
-  if (msg == "{\"state\":true}") on = true;
-  else if (msg == "{\"state\":false}") on = false;
-  else {
-    Serial.printf("Invalid MQTT command on %s: %s\n", topic.c_str(), msg.c_str());
-    return;
+  bool state = doc["state"];
+  String topicStr = String(topic);
+  
+  if (topicStr.endsWith("/led/set")) {
+      digitalWrite(LED_PIN, state ? HIGH : LOW);
   }
-
-  if (topic == tRelaySet) {
-    writeRelay(on);
-    publishState(tRelayState, relayOn);
-    return;
-  }
-
-  if (topic == tLedSet) {
-    writeLed(on);
-    publishState(tLedState, ledOn);
-    return;
+  else if (topicStr.endsWith("/relay/set")) {
+    digitalWrite(RELAY_PIN, RELAY_ACTIVE_LOW ? (state ? LOW : HIGH) : (state ? HIGH : LOW));
   }
 }
 
-// ---------- เชื่อมต่อ ----------
-void connectWifi() {
-  WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.printf("เชื่อมต่อ WiFi %s ", WIFI_SSID);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(400);
-    Serial.print(".");
+void reconnect() {
+  // เช็กสถานะ Wi-Fi ก่อน ถ้าหลุดให้ต่อใหม่ก่อนเชื่อม MQTT
+  if (WiFi.status() != WL_CONNECTED) {
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    unsigned long startAttemptTime = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 10000) {
+      delay(500);
+    }
+    if (WiFi.status() != WL_CONNECTED) {
+      return; 
+    }
   }
-  Serial.printf("\nWiFi OK, IP: %s\n", WiFi.localIP().toString().c_str());
-}
 
-bool connectMqtt() {
-  String clientId = "esp32-" + String(DEVICE_ID) + "-" + String((uint32_t)ESP.getEfuseMac(), HEX);
-  const char* user = (strlen(MQTT_USER) > 0) ? MQTT_USER : nullptr;
-  const char* pass = (strlen(MQTT_USER) > 0) ? MQTT_PASS : nullptr;
-
-  Serial.print("เชื่อมต่อ MQTT... ");
-  // Last Will: ถ้าบอร์ดหลุดกะทันหัน broker จะประกาศ "offline" แทน
-  bool ok = mqtt.connect(clientId.c_str(), user, pass,
-                         tStatus.c_str(), 1, true, "offline");
-  if (!ok) {
-    Serial.printf("ไม่สำเร็จ (rc=%d)\n", mqtt.state());
-    return false;
+  if (!client.connected()) {
+    String clientId = "ESP32Client-" + String(random(0xffff));
+    
+    Serial.print("Connecting to MQTT Broker...");
+    // พยายามเชื่อมต่อ MQTT Broker
+    if (client.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
+      Serial.println(" connected!");
+      String ledTopic = "esp32/" + String(DEVICE_ID) + "/led/set";
+      String relayTopic = "esp32/" + String(DEVICE_ID) + "/relay/set";
+      
+      client.subscribe(ledTopic.c_str());
+      client.subscribe(relayTopic.c_str());
+    } else {
+      Serial.print(" failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 2 seconds");
+    }
   }
-  Serial.println("สำเร็จ");
-
-  mqtt.subscribe(tRelaySet.c_str());
-  mqtt.subscribe(tLedSet.c_str());
-  mqtt.subscribe(tPing.c_str());
-
-  mqtt.publish(tStatus.c_str(), "online", true);
-  publishState(tRelayState, relayOn);
-  publishState(tLedState, ledOn);
-  return true;
 }
 
-void publishTelemetry() {
-  updateUptime();
-  char json[128];
-  snprintf(json, sizeof(json),
-           "{\"rssi\":%d,\"uptime\":%llu,\"heap\":%u}",
-           WiFi.RSSI(), (unsigned long long)(uptimeMs / 1000), (unsigned)ESP.getFreeHeap());
-  mqtt.publish(tTelemetry.c_str(), json);
-}
-
-// ---------- Arduino ----------
 void setup() {
   Serial.begin(115200);
-  lastUptimeSampleMs = (uint32_t)millis();
-
-  // ตั้งค่าระดับสัญญาณก่อนเปลี่ยนเป็น OUTPUT เพื่อไม่ให้รีเลย์ติดวูบตอนบูต
-  digitalWrite(RELAY_PIN, RELAY_ACTIVE_LOW ? HIGH : LOW);
+  delay(1000);
+  
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(LED_PIN, OUTPUT);
-  writeRelay(false);
-  writeLed(false);
+  
+  // ตั้งค่าสถานะเริ่มต้น (ปิดทั้งหมด)
+  digitalWrite(RELAY_PIN, RELAY_ACTIVE_LOW ? HIGH : LOW);
+  digitalWrite(LED_PIN, LOW);
 
-  base        = String("esp32/") + DEVICE_ID;
-  tStatus     = base + "/status";
-  tTelemetry  = base + "/telemetry";
-  tPing       = base + "/ping";
-  tPong       = base + "/pong";
-  tRelaySet   = base + "/relay/set";
-  tRelayState = base + "/relay/state";
-  tLedSet     = base + "/led/set";
-  tLedState   = base + "/led/state";
+  Serial.println();
+  Serial.print("Connecting to WiFi: ");
+  Serial.println(WIFI_SSID);
 
-  connectWifi();
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  
+  unsigned long startAttemptTime = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < 15000) {
+    delay(500);
+    Serial.print(".");
+  }
 
-  mqtt.setServer(MQTT_HOST, MQTT_PORT);
-  mqtt.setCallback(onMessage);
-  mqtt.setKeepAlive(15);
-  mqtt.setBufferSize(512);
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi connected!");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\nWiFi connection failed! Please check SSID/Password.");
+  }
+
+  client.setServer(MQTT_HOST, MQTT_PORT);
+  client.setCallback(callback);
+  
+  // เชื่อมต่อ MQTT ทันที
+  reconnect();
 }
 
 void loop() {
-  updateUptime();
-  if (WiFi.status() != WL_CONNECTED) {
-    connectWifi();
+  if (!client.connected()) {
+    reconnect();
   }
+  client.loop();
 
-  if (!mqtt.connected()) {
-    unsigned long now = millis();
-    if (now - lastReconnect >= RECONNECT_EVERY_MS) {
-      lastReconnect = now;
-      connectMqtt();
-    }
-    return;
-  }
-
-  mqtt.loop();
-
+  // ส่ง Telemetry ทุกๆ 5 วินาที
   unsigned long now = millis();
-  if (now - lastTelemetry >= TELEMETRY_EVERY_MS) {
-    lastTelemetry = now;
-    publishTelemetry();
+  if (now - lastPingTime > pingInterval) {
+    lastPingTime = now;
+
+    StaticJsonDocument<200> doc;
+    doc["uptime"] = millis() / 1000; // แปลงเป็นวินาที
+    doc["rssi"] = WiFi.RSSI();
+
+    char buffer[256];
+    serializeJson(doc, buffer);
+
+    String telemetryTopic = "esp32/" + String(DEVICE_ID) + "/telemetry";
+    client.publish(telemetryTopic.c_str(), buffer);
   }
 }
