@@ -22,8 +22,6 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
-#include "soc/soc.h"
-#include "soc/rtc_cntrl_reg.h"
 
 // --- ตั้งค่า WiFi ---
 const char* WIFI_SSID = "Nitipoom";         // ชื่อ Wi-Fi
@@ -126,9 +124,6 @@ void reconnect() {
 }
 
 void setup() {
-  // ปิดระบบรีเซ็ตจากไฟตก (Brownout detector)
-  WRITE_PERI_REG(RTC_CNTRL_BROWN_OUT_REG, 0);
-
   Serial.begin(115200);
   delay(1000);
   
@@ -168,21 +163,3 @@ void setup() {
 void loop() {
   if (!client.connected()) {
     reconnect();
-  }
-  client.loop();
-
-  unsigned long now = millis();
-  if (now - lastPingTime > pingInterval) {
-    lastPingTime = now;
-
-    StaticJsonDocument<200> doc;
-    doc["uptime"] = millis() / 1000;
-    doc["rssi"] = WiFi.RSSI();
-
-    char buffer[256];
-    serializeJson(doc, buffer);
-
-    String telemetryTopic = "esp32/" + String(DEVICE_ID) + "/telemetry";
-    client.publish(telemetryTopic.c_str(), buffer);
-  }
-}
