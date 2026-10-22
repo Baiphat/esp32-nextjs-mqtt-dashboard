@@ -24,10 +24,10 @@
 #include <ArduinoJson.h>
 
 // --- ตั้งค่า WiFi ---
-const char* WIFI_SSID = "Nitipoom";         // ชื่อ Wi-Fi
-const char* WIFI_PASS = "0812676817";       // รหัสผ่าน Wi-Fi
+const char* WIFI_SSID = "Nitipoom";        // ชื่อ Wi-Fi
+const char* WIFI_PASS = "0812676817";      // รหัสผ่าน Wi-Fi
 
-// --- ตั้งค่า MQTT Broker (พอร์ต TCP ปกติ 1883) ---
+// --- ตั้งค่า MQTT Broker ---
 const char* MQTT_HOST = "broker.emqx.io";   // Public Broker
 const uint16_t MQTT_PORT = 1883;            // พอร์ต MQTT มาตรฐาน
 const char* MQTT_USER = "";
@@ -37,15 +37,15 @@ const char* MQTT_PASS = "";
 const char* DEVICE_ID = "esp32-pat-789"; 
 
 // --- กำหนดขาพิน ---
-const int RELAY_PIN = 26;                   // ต่อขา IN ของโมดูลรีเลย์
-const bool RELAY_ACTIVE_LOW = HIGH;         // รีเลย์ทั่วไปสั่ง LOW แล้วติด
-const int LED_PIN = 2;                      // ไฟ LED บนบอร์ด DevKit V1
+const int RELAY_PIN = 26;                 // ต่อขา IN ของโมดูลรีเลย์
+const bool RELAY_ACTIVE_LOW = true;       // true = สั่ง LOW เพื่อเปิดรีเลย์ (โมดูลทั่วไปใช้แบบนี้)
+const int LED_PIN = 2;                    // ไฟ LED บนบอร์ด DevKit V1
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
 unsigned long lastPingTime = 0;
-const long pingInterval = 5000;             // ส่งสถานะทุกๆ 5 วินาที
+const long pingInterval = 5000;           // ส่งสถานะทุกๆ 5 วินาที
 
 // ฟังก์ชันรับข้อความจาก MQTT
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -58,6 +58,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   StaticJsonDocument<200> doc;
   DeserializationError error = deserializeJson(doc, message);
   if (error) {
+    Serial.println("JSON Parsing failed!");
     return;
   }
 
@@ -65,15 +66,20 @@ void callback(char* topic, byte* payload, unsigned int length) {
   String topicStr = String(topic);
   
   if (topicStr.endsWith("/led/set")) {
-      digitalWrite(LED_PIN, state ? HIGH : LOW);
+    digitalWrite(LED_PIN, state ? HIGH : LOW);
+    Serial.print("LED State: ");
+    Serial.println(state ? "ON" : "OFF");
   }
   else if (topicStr.endsWith("/relay/set")) {
+    // ถ้า Active Low: state = true (เปิด) -> ส่ง LOW, state = false (ปิด) -> ส่ง HIGH
     digitalWrite(RELAY_PIN, RELAY_ACTIVE_LOW ? (state ? LOW : HIGH) : (state ? HIGH : LOW));
+    
+    Serial.print("Relay State: ");
+    Serial.println(state ? "ON" : "OFF");
   }
 }
 
 void reconnect() {
-  // เช็กสถานะ Wi-Fi ก่อน ถ้าหลุดให้ต่อใหม่ก่อนเชื่อม MQTT
   if (WiFi.status() != WL_CONNECTED) {
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     unsigned long startAttemptTime = millis();
@@ -91,11 +97,9 @@ void reconnect() {
     
     Serial.print("Connecting to MQTT Broker...");
     
-    // เชื่อมต่อพร้อมตั้งค่า Last Will (ส่ง "offline" ไปที่ status topic อัตโนมัติถ้าบอร์ดหลุด)[cite: 8]
     if (client.connect(clientId.c_str(), MQTT_USER, MQTT_PASS, statusTopic.c_str(), 0, true, "offline")) {
       Serial.println(" connected!");
       
-      // ส่งสถานะ "online" (retained = true) ไปบอกเว็บ[cite: 8]
       client.publish(statusTopic.c_str(), "online", true);
 
       String ledTopic = "esp32/" + String(DEVICE_ID) + "/led/set";
@@ -118,7 +122,7 @@ void setup() {
   pinMode(RELAY_PIN, OUTPUT);
   pinMode(LED_PIN, OUTPUT);
   
-  // ตั้งค่าสถานะเริ่มต้น (ปิดทั้งหมด)
+  // ตั้งค่าสถานะเริ่มต้น (ปิดรีเลย์)
   digitalWrite(RELAY_PIN, RELAY_ACTIVE_LOW ? HIGH : LOW);
   digitalWrite(LED_PIN, LOW);
 
@@ -145,7 +149,6 @@ void setup() {
   client.setServer(MQTT_HOST, MQTT_PORT);
   client.setCallback(callback);
   
-  // เชื่อมต่อ MQTT ทันที
   reconnect();
 }
 
@@ -155,14 +158,13 @@ void loop() {
   }
   client.loop();
 
-  // ส่ง Telemetry ทุกๆ 5 วินาที
   unsigned long now = millis();
   if (now - lastPingTime > pingInterval) {
     lastPingTime = now;
 
     StaticJsonDocument<200> doc;
-    doc["uptime"] = millis() / 1000; // แปลงเป็นวินาที[cite: 8]
-    doc["rssi"] = WiFi.RSSI();        // ความแรงสัญญาณ Wi-Fi[cite: 8]
+    doc["uptime"] = millis() / 1000; 
+    doc["rssi"] = WiFi.RSSI();        
 
     char buffer[256];
     serializeJson(doc, buffer);
