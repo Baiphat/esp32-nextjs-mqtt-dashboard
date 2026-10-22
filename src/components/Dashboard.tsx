@@ -71,7 +71,7 @@ export function Dashboard() {
           accent="primary"
           value={esp.relay}
           pending={esp.pending.relay}
-          unavailable={unavailable}
+          unavailable={unavailable || esp.relay === null}
           onChange={(on) => esp.send("relay", on)}
         />
         <ControlCard
@@ -81,7 +81,7 @@ export function Dashboard() {
           accent="warning"
           value={esp.led}
           pending={esp.pending.led}
-          unavailable={unavailable}
+          unavailable={unavailable || esp.led === null}
           onChange={(on) => esp.send("led", on)}
         />
       </div>

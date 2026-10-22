@@ -150,6 +150,16 @@ export function useEsp32(config: Esp32Config | null, notify: Notify) {
     client.on("connect", () => {
       setLink("connected");
       setLinkError(null);
+      // Clear legacy retained commands left by older clients. An empty retained
+      // payload deletes the broker's stored command and cannot actuate hardware.
+      for (const topic of [t.relaySet, t.ledSet]) {
+        client.publish(topic, "", { qos: 0, retain: true }, (err) => {
+          if (err) {
+            setLinkError("คำสั่งเก่าบน Broker ล้างไม่สำเร็จ");
+            addLog("error", `ล้าง retained command ไม่สำเร็จ: ${topic}`);
+          }
+        });
+      }
       client.subscribe(
         [t.status, t.relayState, t.ledState, t.telemetry, t.pong],
         { qos: 0 },
@@ -278,6 +288,17 @@ export function useEsp32(config: Esp32Config | null, notify: Notify) {
         return;
       }
 
+      // Do not allow a guessed OFF value to become a real command before the
+      // retained state from the device has synchronized the switch.
+      if (values.current[channel] === null) {
+        notifyRef.current({
+          kind: "error",
+          title: "ยังไม่ได้รับสถานะจาก ESP32",
+          description: "รอสถานะจริงจากบอร์ดก่อนสั่งงาน",
+        });
+        return;
+      }
+
       // Reflect the user's intent immediately; state responses can synchronize it later.
       if (channel === "relay") setRelay(on);
       else setLed(on);
@@ -285,7 +306,7 @@ export function useEsp32(config: Esp32Config | null, notify: Notify) {
       const topic = channel === "relay" ? topics.relaySet : topics.ledSet;
       const payload = JSON.stringify({ state: on });
       console.info("[MQTT] Publish command", { topic, payload });
-      client.publish(topic, payload, { qos: 1 }, (err) => {
+      client.publish(topic, payload, { qos: 1, retain: false }, (err) => {
         if (err) {
           const title = "ส่งคำสั่งไม่สำเร็จ";
           addLog("error", title);

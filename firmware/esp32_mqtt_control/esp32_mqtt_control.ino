@@ -37,7 +37,7 @@ const char* MQTT_PASS = "";
 const char* DEVICE_ID = "esp32-pat-789"; 
 
 // --- ขาพิน ---
-const int RELAY_PIN = 23;                   // ใช้ขา 23 ที่ทดสอบแล้วเวิร์ก
+const int RELAY_PIN = 23;                   
 const int LED_PIN = 2;                      
 
 WiFiClient espClient;
@@ -46,7 +46,14 @@ PubSubClient client(espClient);
 unsigned long lastPingTime = 0;
 const long pingInterval = 5000;           
 
+bool isBooting = true;
+unsigned long bootTime = 0;
+
 void callback(char* topic, byte* payload, unsigned int length) {
+  if (isBooting && (millis() - bootTime < 3000)) {
+    return; 
+  }
+
   String message = "";
   for (unsigned int i = 0; i < length; i++) {
     message += (char)payload[i];
@@ -63,8 +70,8 @@ void callback(char* topic, byte* payload, unsigned int length) {
     digitalWrite(LED_PIN, state ? HIGH : LOW);
   }
   else if (topicStr.endsWith("/relay/set")) {
-    // สั่ง LOW = เปิด, HIGH = ปิด
-    digitalWrite(RELAY_PIN, state ? LOW : HIGH);
+    // [สลับตรรกะใหม่]: state = true (เปิด) ให้จ่าย HIGH, state = false (ปิด) ให้จ่าย LOW
+    digitalWrite(RELAY_PIN, state ? HIGH : LOW);
     Serial.print("Relay State: ");
     Serial.println(state ? "ON" : "OFF");
   }
@@ -85,15 +92,17 @@ void reconnect() {
 }
 
 void setup() {
-  // --- 1. บังคับตั้งค่าพินและดีดรีเลย์ให้ "ปิด" ตั้งแต่บรรทัดแรกสุดทันทีที่ไฟเข้าบอร์ด ---
+  // --- 1. บังคับพินและดีดรีเลย์ให้เป็น LOW (ปิดแบบกลับตรรกะ) ตั้งแต่บรรทัดแรกสุดทันที ---
   pinMode(RELAY_PIN, OUTPUT);
-  digitalWrite(RELAY_PIN, HIGH); 
+  digitalWrite(RELAY_PIN, LOW); 
 
   Serial.begin(115200);
   delay(500);
   
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
+
+  bootTime = millis();
 
   // --- 2. เชื่อมต่อ Wi-Fi ---
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -117,6 +126,10 @@ void setup() {
 }
 
 void loop() {
+  if (isBooting && (millis() - bootTime > 3000)) {
+    isBooting = false;
+  }
+
   if (WiFi.status() != WL_CONNECTED) {
     WiFi.reconnect();
   }

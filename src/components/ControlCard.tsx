@@ -86,7 +86,9 @@ export function ControlCard({
 
       {unavailable && (
         <p className="-mt-2 text-xs text-zinc-500">
-          สั่งงานไม่ได้ในตอนนี้ เพราะบอร์ดออฟไลน์
+          {value === null
+            ? "รอสถานะจริงจากบอร์ดก่อนจึงจะสั่งงานได้"
+            : "สั่งงานไม่ได้ในตอนนี้ เพราะบอร์ดออฟไลน์"}
         </p>
       )}
     </section>
