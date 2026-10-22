@@ -38,7 +38,7 @@ const char* DEVICE_ID = "esp32-pat-789";
 
 // --- กำหนดขาพิน ---
 const int RELAY_PIN = 26;                 // ต่อขา IN ของโมดูลรีเลย์
-const bool RELAY_ACTIVE_LOW = true;       // true = สั่ง LOW เพื่อเปิดรีเลย์ (โมดูลทั่วไปใช้แบบนี้)
+const bool RELAY_ACTIVE_LOW = false;       // true = สั่ง LOW เพื่อเปิดรีเลย์ (โมดูลทั่วไปใช้แบบนี้)
 const int LED_PIN = 2;                    // ไฟ LED บนบอร์ด DevKit V1
 
 WiFiClient espClient;
