@@ -38,7 +38,7 @@ const char* DEVICE_ID = "esp32-pat-789";
 
 // --- กำหนดขาพิน ---
 const int RELAY_PIN = 26;                   // ต่อขา IN ของโมดูลรีเลย์
-const bool RELAY_ACTIVE_LOW = true;         // รีเลย์ทั่วไปสั่ง LOW แล้วติด
+const bool RELAY_ACTIVE_LOW = false;   // รีเลย์ทั่วไปสั่ง LOW แล้วติด
 const int LED_PIN = 2;                      // ไฟ LED บนบอร์ด DevKit V1
 
 WiFiClient espClient;
@@ -87,11 +87,17 @@ void reconnect() {
 
   if (!client.connected()) {
     String clientId = "ESP32Client-" + String(random(0xffff));
+    String statusTopic = "esp32/" + String(DEVICE_ID) + "/status";
     
     Serial.print("Connecting to MQTT Broker...");
-    // พยายามเชื่อมต่อ MQTT Broker
-    if (client.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
+    
+    // เชื่อมต่อพร้อมตั้งค่า Last Will (ส่ง "offline" ไปที่ status topic อัตโนมัติถ้าบอร์ดหลุด)[cite: 8]
+    if (client.connect(clientId.c_str(), MQTT_USER, MQTT_PASS, statusTopic.c_str(), 0, true, "offline")) {
       Serial.println(" connected!");
+      
+      // ส่งสถานะ "online" (retained = true) ไปบอกเว็บ[cite: 8]
+      client.publish(statusTopic.c_str(), "online", true);
+
       String ledTopic = "esp32/" + String(DEVICE_ID) + "/led/set";
       String relayTopic = "esp32/" + String(DEVICE_ID) + "/relay/set";
       
@@ -155,8 +161,8 @@ void loop() {
     lastPingTime = now;
 
     StaticJsonDocument<200> doc;
-    doc["uptime"] = millis() / 1000; // แปลงเป็นวินาที
-    doc["rssi"] = WiFi.RSSI();
+    doc["uptime"] = millis() / 1000; // แปลงเป็นวินาที[cite: 8]
+    doc["rssi"] = WiFi.RSSI();        // ความแรงสัญญาณ Wi-Fi[cite: 8]
 
     char buffer[256];
     serializeJson(doc, buffer);
